@@ -15,7 +15,20 @@ class Database:
         except Exception as e:
             print(f"❌ DB Connection Error: {e}")
 
-    # ... (Keep log_process, check_duplicate, save_invoice, etc. unchanged) ...
+    def save_audio_note(self, doc_id, data):
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO audio_notes (doc_id, transcript, summary, sentiment)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    doc_id, 
+                    data.get('transcript', ''), 
+                    data.get('summary', ''), 
+                    data.get('sentiment', 'Neutral')
+                )
+            )
 
     def save_resume(self, doc_id, data):
         print(f"\n🔍 [DEBUG] Raw Resume Data from AI: {data}")

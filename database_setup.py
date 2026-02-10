@@ -78,8 +78,19 @@ def setup_database():
                 summary TEXT
             );
         """)
+    # --- NEW TABLE: AUDIO NOTES ---
+        print("   -> Creating 'audio_notes' table...")
+        cur.execute("DROP TABLE IF EXISTS audio_notes;")
+        cur.execute("""
+            CREATE TABLE audio_notes (
+                doc_id VARCHAR(36) REFERENCES processed_docs(id),
+                transcript TEXT,
+                summary TEXT,
+                sentiment VARCHAR(50)
+            );
+        """)
 
-        print("✅ Database Updated!")
+        print("✅ Database Updated with Audio Support!")
         cur.close()
         conn.close()
 

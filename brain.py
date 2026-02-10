@@ -1,42 +1,65 @@
 # brain.py
 import json
 from groq import Groq
-from typing import List, Dict
 from config import GROQ_API_KEY, MODEL_NAME
 
 class GroqBrain:
     def __init__(self):
         self.client = Groq(api_key=GROQ_API_KEY)
 
-    def decide(self, state: Dict, tools: List[str]) -> Dict:
+    def decide(self, state, tools):
+        # 1. Force the prompt to be explicit about JSON
         system_prompt = """
-        You are an autonomous agent.
-        WORKFLOWS:
-        1. Unknown Type -> 'classify_document'.
-        2. INVOICE -> 'extract_invoice' -> 'save_data'.
-        3. RESUME -> 'score_resume' -> 'save_data'.
-        4. RESEARCH_PAPER -> 'summarize_research_paper' -> 'save_data'.
-        5. OTHER -> 'summarize_unknown' -> 'save_data'.
-        
-        RULE: Do NOT stop until you call 'save_data'.
-        Output JSON: {"reasoning": "...", "action": "..."}
+        You are an autonomous agent. 
+        Output ONLY valid JSON. 
+        No markdown, no thinking blocks, no chit-chat.
         """
         
         user_prompt = f"""
-        State:
-        - File: {state['filename']}
-        - Type: {state.get('type', 'Unknown')}
-        - History: {[h['action'] for h in state['history']]}
-        """
+        Analyze the current state and decide the next action.
         
+        State: {str(state)[:3000]}
+        
+        Available Tools: [classify_document, extract_invoice, score_resume, summarize_research_paper, summarize_audio_note, summarize_unknown, save_data]
+        
+        Workflows:
+        - If 'type' is missing -> action: "classify_document"
+        - If 'type' is INVOICE and 'extracted_data' is missing -> action: "extract_invoice"
+        - If 'type' is RESUME and 'score' is missing -> action: "score_resume"
+        - If 'type' is RESEARCH and 'research_summary' is missing -> action: "summarize_research_paper"
+        - If 'type' is AUDIO_NOTE and 'audio_summary' is missing -> action: "summarize_audio_note"
+        - If 'type' is OTHER and 'summary_data' is missing -> action: "summarize_unknown"
+        - If data is extracted -> action: "save_data"
+        - If saved -> action: "STOP"
+        
+        Return JSON format:
+        {{
+            "reasoning": "Brief thought process",
+            "action": "Next Tool Name"
+        }}
+        """
+
         try:
-            res = self.client.chat.completions.create(
+            # --- THE NUCLEAR FIX (Same as tools.py) ---
+            # We REMOVE response_format={"type": "json_object"} entirely.
+            completion = self.client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                model=MODEL_NAME, temperature=0, response_format={"type": "json_object"}
+                model=MODEL_NAME,
+                temperature=0
+                # NO response_format here!
             )
-            return json.loads(res.choices[0].message.content)
+            
+            content = completion.choices[0].message.content
+            
+            # Manually clean the output
+            content = content.replace("```json", "").replace("```", "").strip()
+            
+            return json.loads(content)
+            
         except Exception as e:
-            return {"action": "STOP", "reasoning": str(e)}
+            # Fallback if JSON fails
+            print(f"Brain Error: {e}")
+            return {"action": "STOP", "reasoning": f"Error: {e}"}
