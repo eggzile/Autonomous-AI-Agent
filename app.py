@@ -141,6 +141,16 @@ with col1:
                     data = final_state.get('audio_summary', {})
                     st.write(f"**Sentiment:** {data.get('sentiment')}")
                     st.write(f"**Summary:** {data.get('summary')}")
+                    
+                elif "LEGAL" in doc_type:
+                    data = final_state.get('legal_data', {})
+                    st.subheader(data.get('document_type'))
+                    st.write(f"**Parties:** {', '.join(data.get('parties', []))}")
+                    st.write(f"**Effective:** {data.get('effective_date')}")
+                    st.info(f"**Summary:** {data.get('summary')}")
+                    with st.expander("Key Clauses"):
+                        for clause in data.get('key_clauses', []):
+                            st.write(f"- {clause}")
 
                 elif "OTHER" in doc_type:
                     data = final_state.get('summary_data', {})
@@ -153,19 +163,20 @@ with col2:
     st.subheader("💾 Data & Insights")
     
     # Add "Ask Data" to the tabs
-    t1, t2, t3, t4, t5, t6 = st.tabs(["Invoices", "Resumes", "Research", "Audio Notes", "Unknown", "💬 Ask Data"])
+    t1, t2, t3, t4, t5, t6, t7 = st.tabs(["Invoices", "Resumes", "Research", "Legal", "Audio", "Unknown", "💬 Ask Data"])
     
     # --- Existing Tabs ---
     with t1: st.dataframe(get_data("invoices"), use_container_width=True)
     with t2: st.dataframe(get_data("resumes"), use_container_width=True)
     with t3: st.dataframe(get_data("research_papers"), use_container_width=True)
-    with t4: st.dataframe(get_data("audio_notes"), use_container_width=True)
-    with t5: st.dataframe(get_data("unknown_docs"), use_container_width=True)
+    with t4: st.dataframe(get_data("legal_docs"), use_container_width=True)
+    with t5: st.dataframe(get_data("audio_notes"), use_container_width=True)
+    with t6: st.dataframe(get_data("unknown_docs"), use_container_width=True)
     
     # ... inside the "Right Column" logic in app.py ...
 
     # ... inside the "💬 Ask Data" tab (t6) ...
-    with t6:
+    with t7:
         st.info("🤖 Ask questions about your data (Text or Voice)")
         
         # 1. Inputs

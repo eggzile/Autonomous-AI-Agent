@@ -25,9 +25,7 @@ class ToolRegistry:
 
     # --- 2. CLASSIFICATION ---
     def classify_document(self, content: str) -> str:
-        # THE FIX: Instant catch for tagged audio
-        if "[METADATA: AUDIO_NOTE]" in content:
-            return "AUDIO_NOTE"
+        if "[METADATA: AUDIO_NOTE]" in content: return "AUDIO_NOTE"
 
         prompt = f"""
         Classify into EXACTLY one category:
@@ -35,7 +33,8 @@ class ToolRegistry:
         2. RESUME
         3. RESEARCH_PAPER
         4. AUDIO_NOTE
-        5. OTHER
+        5. LEGAL_DOC (Contracts, NDAs, Wills, Deeds, Agreements)
+        6. OTHER
         
         Text: {content[:1000]}
         
@@ -47,6 +46,12 @@ class ToolRegistry:
         if "RESUME" in raw: return "RESUME"
         if "RESEARCH" in raw: return "RESEARCH_PAPER"
         if "AUDIO" in raw: return "AUDIO_NOTE"
+        
+        # --- ROBUST CHECK FOR LEGAL ---
+        if "LEGAL" in raw or "NDA" in raw or "AGREEMENT" in raw or "CONTRACT" in raw:
+            return "LEGAL_DOC"
+        # ------------------------------
+        
         return "OTHER"
 
     # --- 3. EXTRACTION TOOLS ---
@@ -65,7 +70,23 @@ class ToolRegistry:
                 data['subtotal'] = calc_sub
         except: pass
         return data
-
+    
+    
+    def extract_legal_doc(self, content: str) -> Dict:
+        prompt = f"""
+        Analyze this legal document.
+        Return JSON with:
+        - 'document_type': Specific type (e.g., "Mutual NDA", "Employment Contract").
+        - 'parties': List of names/companies (e.g., ["TechFlow Solutions", "Global Data Systems"]).
+        - 'effective_date': YYYY-MM-DD.
+        - 'expiration_date': YYYY-MM-DD (Calculate if term is given, e.g., "2 years from effective").
+        - 'key_clauses': List of 3-5 distinct terms (e.g., "Confidentiality lasts 5 years").
+        - 'summary': A 2-sentence summary.
+        
+        Text: {content[:3000]}
+        """
+        return self._call_groq_json(prompt)
+    
     def score_resume(self, content: str) -> Dict:
         return self._call_groq_json(f"Score resume 0-100. Return JSON with 'score', 'skills', 'name'.\n{content[:2000]}")
 
@@ -171,21 +192,23 @@ class ToolRegistry:
     # --- 4. SAVING ---
     def save_data(self, doc_id: str, state: Dict):
         doc_type = state.get('type')
-        filename = state.get('filename')
-        print(f"   [Tool] 💾 Saving {doc_type}...")
+        # ... (keep existing logging logic) ...
         
         try:
-            self.db.log_process(doc_id, filename, doc_type, state.get('file_hash'))
+            self.db.log_process(doc_id, state.get('filename'), doc_type, state.get('file_hash'))
 
             if "INVOICE" in doc_type: self.db.save_invoice(doc_id, state.get('extracted_data', {}))
             elif "RESUME" in doc_type: self.db.save_resume(doc_id, state.get('score', {}))
             elif "RESEARCH" in doc_type: self.db.save_research_paper(doc_id, state.get('research_summary', {}))
             elif "AUDIO" in doc_type: self.db.save_audio_note(doc_id, state.get('audio_summary', {}))
+            
+            # --- NEW SAVE BLOCK ---
+            elif "LEGAL" in doc_type:
+                self.db.save_legal_doc(doc_id, state.get('legal_data', {}))
+            # ----------------------
+
             elif "OTHER" in doc_type: self.db.save_unknown(doc_id, state.get('summary_data', {}))
             
-            print("--------------------------------------------------")
-            print(f"✅  SUCCESS: Data for '{filename}' saved to DB.")
-            print("--------------------------------------------------")
             return "Saved Successfully"
         except Exception as e:
             return f"DB Error: {e}"

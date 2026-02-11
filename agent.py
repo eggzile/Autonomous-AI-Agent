@@ -87,13 +87,12 @@ class AutonomousAgent:
         if action == "classify_document": return t.classify_document(state['content'])
         elif action == "extract_invoice": state['extracted_data'] = t.extract_invoice(state['content'])
         elif action == "score_resume": state['score'] = t.score_resume(state['content'])
-        
-        # --- NEW ACTION ---
         elif action == "summarize_audio_note":
             state['audio_summary'] = t.summarize_audio_note(state['content'])
             return "Audio Summarized"
-        # ------------------
-
+        elif action == "extract_legal_doc":
+            state['legal_data'] = t.extract_legal_doc(state['content'])
+            return "Legal Data Extracted"
         elif action == "summarize_research_paper": 
             state['research_summary'] = t.summarize_research_paper(state['content'])
             return "Summarized"

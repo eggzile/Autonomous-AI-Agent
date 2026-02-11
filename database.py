@@ -109,6 +109,33 @@ class Database:
                 (doc_id, data.get('title', 'Unknown Title'), data.get('summary', 'No summary available.'))
             )
 
+    def save_legal_doc(self, doc_id, data):
+        # Handle dates safely
+        def parse_date(d):
+            try: return parser.parse(str(d)).strftime('%Y-%m-%d')
+            except: return None
+
+        eff_date = parse_date(data.get('effective_date'))
+        exp_date = parse_date(data.get('expiration_date'))
+        
+        with self.conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO legal_docs 
+                (doc_id, document_type, parties, effective_date, expiration_date, key_clauses, summary)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    doc_id,
+                    data.get('document_type', 'Unknown'),
+                    data.get('parties', []),
+                    eff_date,
+                    exp_date,
+                    Json(data.get('key_clauses', [])),
+                    data.get('summary', '')
+                )
+            )
+            
     def save_unknown(self, doc_id, data):
         with self.conn.cursor() as cur:
             cur.execute(
