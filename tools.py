@@ -91,6 +91,83 @@ class ToolRegistry:
         data['transcript'] = clean_content 
         return data
 
+    # ... inside ToolRegistry class ...
+
+    def query_database(self, query: str) -> Dict:
+        """
+        1. Convert Text -> SQL
+        2. Execute SQL -> DataFrame
+        3. Convert DataFrame -> Natural Language Answer
+        """
+        print(f"   [Tool] ❓ Processing Query: '{query}'")
+        
+        # A. Define Schema
+        schema_context = """
+        Tables:
+        - invoices (id, doc_id, vendor, inv_date, total_amount)
+        - resumes (id, doc_id, candidate_name, score, skills)
+        - research_papers (id, doc_id, title, summary)
+        - audio_notes (id, doc_id, transcript, summary, sentiment)
+        """
+
+        try:
+            # --- STEP 1: GENERATE SQL ---
+            sql_prompt = f"""
+            Generate a PostgreSQL query for: "{query}"
+            Context: {schema_context}
+            Rules:
+            - Return ONLY the raw SQL string.
+            - Use ILIKE for text searches.
+            - LIMIT to 10 rows unless specified otherwise.
+            """
+            
+            sql_response = self._call_groq(sql_prompt)
+            sql_query = sql_response.replace("```sql", "").replace("```", "").strip()
+            
+            print(f"   [Tool] 🔍 Executing SQL: {sql_query}")
+
+            # --- STEP 2: EXECUTE SQL (THE FIX) ---
+            import pandas as pd
+            # Import 'text' to handle query structure correctly
+            from sqlalchemy import create_engine, text
+            from config import DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME
+            
+            db_url = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+            engine = create_engine(db_url)
+            
+            # FIX: Open connection explicitly and wrap SQL in text()
+            with engine.connect() as conn:
+                df = pd.read_sql(text(sql_query), conn)
+            
+            # --- STEP 3: GENERATE ANSWER ---
+            if df.empty:
+                nl_answer = "I searched the database, but found no records matching your request."
+            else:
+                data_preview = df.head(5).to_string(index=False)
+                row_count = len(df)
+                
+                summary_prompt = f"""
+                User Question: "{query}"
+                Database Data ({row_count} total rows):
+                {data_preview}
+                
+                Task: Answer the user's question in natural language based on this data. 
+                - Be concise.
+                """
+                nl_answer = self._call_groq(summary_prompt)
+
+            return {
+                "status": "success", 
+                "data": df, 
+                "sql": sql_query,
+                "answer": nl_answer
+            }
+            
+        except Exception as e:
+            print(f"SQL Execution Error: {e}")
+            return {"status": "error", "message": str(e)}
+        
+
     # --- 4. SAVING ---
     def save_data(self, doc_id: str, state: Dict):
         doc_type = state.get('type')

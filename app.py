@@ -147,17 +147,72 @@ with col1:
                     st.write(data.get('summary'))
 
 # ==========================================
-# RIGHT COLUMN: DATABASE VIEW
+# RIGHT COLUMN: DATABASE & CHAT
 # ==========================================
 with col2:
-    st.subheader("💾 Database Records")
-    if st.button("🔄 Refresh Tables"):
-        st.rerun()
+    st.subheader("💾 Data & Insights")
     
-    t1, t2, t3, t4, t5 = st.tabs(["Invoices", "Resumes", "Research", "Audio Notes", "Unknown"])
+    # Add "Ask Data" to the tabs
+    t1, t2, t3, t4, t5, t6 = st.tabs(["Invoices", "Resumes", "Research", "Audio Notes", "Unknown", "💬 Ask Data"])
     
+    # --- Existing Tabs ---
     with t1: st.dataframe(get_data("invoices"), use_container_width=True)
     with t2: st.dataframe(get_data("resumes"), use_container_width=True)
     with t3: st.dataframe(get_data("research_papers"), use_container_width=True)
     with t4: st.dataframe(get_data("audio_notes"), use_container_width=True)
     with t5: st.dataframe(get_data("unknown_docs"), use_container_width=True)
+    
+    # ... inside the "Right Column" logic in app.py ...
+
+    # ... inside the "💬 Ask Data" tab (t6) ...
+    with t6:
+        st.info("🤖 Ask questions about your data (Text or Voice)")
+        
+        # 1. Inputs
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            query_text = st.text_input("Type your question:", placeholder="e.g., Who has the highest resume score?")
+        with c2:
+            query_voice = st.audio_input("Or Record")
+        
+        final_query = None
+
+        # Logic to handle Voice vs Text
+        if query_voice:
+            # We need to transcribe it first
+            from tools import ToolRegistry
+            t = ToolRegistry() # Temporary instance
+            with st.spinner("🎧 Transcribing..."):
+                final_query = t.transcribe_audio(query_voice)
+                st.write(f"**🗣️ You said:** *{final_query}*")
+        elif query_text:
+            final_query = query_text
+
+        # 2. Execution Button
+        if final_query:
+            if st.button("🚀 Run Analysis", type="primary"):
+                from tools import ToolRegistry
+                t = ToolRegistry()
+                
+                with st.spinner("🧠 Thinking & Querying Database..."):
+                    result = t.query_database(final_query)
+                    
+                    if result['status'] == 'error':
+                        st.error(f"❌ SQL Error: {result['message']}")
+                    else:
+                        # --- DISPLAY THE RESULT ---
+                        
+                        # A. Natural Language Answer
+                        st.markdown(f"### 🤖 Answer:")
+                        st.success(result['answer'])
+                        
+                        # B. The Database Entry (Evidence)
+                        st.markdown("### 📊 Evidence (Database Rows):")
+                        if result['data'] is not None and not result['data'].empty:
+                            st.dataframe(result['data'], use_container_width=True)
+                        else:
+                            st.warning("No rows returned from query.")
+                            
+                        # C. Technical Details (Hidden by default)
+                        with st.expander("🕵️ View Generated SQL Query"):
+                            st.code(result.get('sql'), language='sql')
