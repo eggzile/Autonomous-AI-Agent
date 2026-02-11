@@ -166,12 +166,12 @@ with col2:
     t1, t2, t3, t4, t5, t6, t7 = st.tabs(["Invoices", "Resumes", "Research", "Legal", "Audio", "Unknown", "💬 Ask Data"])
     
     # --- Existing Tabs ---
-    with t1: st.dataframe(get_data("invoices"), use_container_width=True)
-    with t2: st.dataframe(get_data("resumes"), use_container_width=True)
-    with t3: st.dataframe(get_data("research_papers"), use_container_width=True)
-    with t4: st.dataframe(get_data("legal_docs"), use_container_width=True)
-    with t5: st.dataframe(get_data("audio_notes"), use_container_width=True)
-    with t6: st.dataframe(get_data("unknown_docs"), use_container_width=True)
+    with t1: st.dataframe(get_data("invoices"), width='stretch')
+    with t2: st.dataframe(get_data("resumes"), width='stretch')
+    with t3: st.dataframe(get_data("research_papers"), width='stretch')
+    with t4: st.dataframe(get_data("legal_docs"), width='stretch')
+    with t5: st.dataframe(get_data("audio_notes"), width='stretch')
+    with t6: st.dataframe(get_data("unknown_docs"), width='stretch')
     
     # ... inside the "Right Column" logic in app.py ...
 
@@ -220,7 +220,7 @@ with col2:
                         # B. The Database Entry (Evidence)
                         st.markdown("### 📊 Evidence (Database Rows):")
                         if result['data'] is not None and not result['data'].empty:
-                            st.dataframe(result['data'], use_container_width=True)
+                            st.dataframe(result['data'], width='stretch')
                         else:
                             st.warning("No rows returned from query.")
                             
