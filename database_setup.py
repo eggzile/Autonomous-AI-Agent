@@ -1,101 +1,162 @@
-# database_setup.py
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from config import DB_HOST, DB_NAME, DB_USER, DB_PASS, DB_PORT
 
-def setup_database():
+def create_database():
+    """
+    Connects to the default 'postgres' database to create 'agent_db_v2' 
+    if it doesn't exist.
+    """
+    conn = None
     try:
-        # 1. Create DB if needed
+        # 1. Connect to default 'postgres' database
+        print(f"🔌 Connecting to system database 'postgres'...")
         conn = psycopg2.connect(
-            host=DB_HOST, database="postgres", user=DB_USER, password=DB_PASS, port=DB_PORT
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASS,
+            port=DB_PORT,
+            database='postgres'  # Connect to default system DB
         )
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         cur = conn.cursor()
-        cur.execute(f"SELECT 1 FROM pg_database WHERE datname = '{DB_NAME}'")
-        if not cur.fetchone():
-            print(f"📦 Creating database '{DB_NAME}'...")
-            cur.execute(f"CREATE DATABASE {DB_NAME}")
-        cur.close()
-        conn.close()
 
-        # 2. Connect to DB and Update Tables
+        # 2. Check if your target database exists
+        cur.execute(f"SELECT 1 FROM pg_catalog.pg_database WHERE datname = '{DB_NAME}'")
+        exists = cur.fetchone()
+
+        if not exists:
+            print(f"🆕 Database '{DB_NAME}' not found. Creating it...")
+            cur.execute(f"CREATE DATABASE {DB_NAME}")
+            print(f"✅ Database '{DB_NAME}' created successfully!")
+        else:
+            print(f"ℹ️  Database '{DB_NAME}' already exists. Skipping creation.")
+
+        cur.close()
+        return True
+
+    except Exception as e:
+        print(f"❌ Database Creation Failed: {e}")
+        return False
+    finally:
+        if conn: conn.close()
+
+def create_tables():
+    """
+    Connects to the newly created 'agent_db_v2' and creates the schema.
+    """
+    conn = None
+    try:
+        # 1. Connect to YOUR specific database
+        print(f"🔌 Connecting to '{DB_NAME}' to create tables...")
         conn = psycopg2.connect(
-            host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS, port=DB_PORT
+            host=DB_HOST,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASS,
+            port=DB_PORT
         )
         conn.autocommit = True
         cur = conn.cursor()
 
-        print("🛠️  Updating Schema...")
-
-        # Master Table
+        # --- 2. PARENT TABLE ---
+        print("   -> Checking 'processed_docs' table...")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS processed_docs (
                 id VARCHAR(36) PRIMARY KEY,
-                filename TEXT,
+                filename VARCHAR(255),
+                doc_type VARCHAR(50),
                 file_hash VARCHAR(64) UNIQUE,
-                doc_type TEXT,
                 processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
 
+        # --- 3. CHILD TABLES ---
+
         # Invoices
+        print("   -> Checking 'invoices' table...")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS invoices (
-                doc_id VARCHAR(36) REFERENCES processed_docs(id),
-                vendor TEXT,
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
+                vendor VARCHAR(255),
                 inv_date DATE,
-                total_amount NUMERIC,
+                total_amount DECIMAL(10, 2),
                 raw_data JSONB
             );
         """)
 
         # Resumes
+        print("   -> Checking 'resumes' table...")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS resumes (
-                doc_id VARCHAR(36) REFERENCES processed_docs(id),
-                candidate_name TEXT,
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
+                candidate_name VARCHAR(255),
                 score INTEGER,
                 skills JSONB
             );
         """)
 
-        # Unknown Docs
+        # Research Papers
+        print("   -> Checking 'research_papers' table...")
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS unknown_docs (
-                doc_id VARCHAR(36) REFERENCES processed_docs(id),
-                summary TEXT,
-                extracted_keywords JSONB
-            );
-        """)
-
-        # --- THE CHANGE: Research Papers (Text, not Vectors) ---
-        print("   -> converting 'research_papers' from Vectors to Summaries...")
-        cur.execute("DROP TABLE IF EXISTS research_papers;")
-        cur.execute("""
-            CREATE TABLE research_papers (
-                doc_id VARCHAR(36) REFERENCES processed_docs(id),
-                title TEXT,
+            CREATE TABLE IF NOT EXISTS research_papers (
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
+                title VARCHAR(255),
                 summary TEXT
             );
         """)
-    # --- NEW TABLE: AUDIO NOTES ---
-        print("   -> Creating 'audio_notes' table...")
-        cur.execute("DROP TABLE IF EXISTS audio_notes;")
+
+        # Audio Notes
+        print("   -> Checking 'audio_notes' table...")
         cur.execute("""
-            CREATE TABLE audio_notes (
-                doc_id VARCHAR(36) REFERENCES processed_docs(id),
+            CREATE TABLE IF NOT EXISTS audio_notes (
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
                 transcript TEXT,
                 summary TEXT,
                 sentiment VARCHAR(50)
             );
         """)
 
-        print("✅ Database Updated with Audio Support!")
+        # Legal Documents (New Feature)
+        print("   -> Checking 'legal_docs' table...")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS legal_docs (
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
+                document_type VARCHAR(100), -- e.g. "NDA", "Will"
+                parties TEXT[],             -- Stores array of names
+                effective_date DATE,
+                expiration_date DATE,
+                key_clauses JSONB,          -- Stores list of clauses as JSON
+                summary TEXT
+            );
+        """)
+
+        # Unknown / Generic Docs
+        print("   -> Checking 'unknown_docs' table...")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS unknown_docs (
+                id SERIAL PRIMARY KEY,
+                doc_id VARCHAR(36) REFERENCES processed_docs(id) ON DELETE CASCADE,
+                summary TEXT,
+                extracted_keywords JSONB
+            );
+        """)
+
+        print("✅ All tables created successfully!")
         cur.close()
-        conn.close()
 
     except Exception as e:
-        print(f"❌ Setup Failed: {e}")
+        print(f"❌ Table Setup Failed: {e}")
+    finally:
+        if conn: conn.close()
 
 if __name__ == "__main__":
-    setup_database()
+    # Step 1: Create DB
+    if create_database():
+        # Step 2: Create Tables
+        create_tables()
