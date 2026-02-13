@@ -3,11 +3,22 @@
 An autonomous AI agent for processing documents and audio notes, classifying them (invoices, resumes, research papers, legal docs, audio notes, or other), extracting structured data, and saving results to a PostgreSQL database. Built with Streamlit, Groq API, and PostgreSQL.
 
 **Key Features**
-- Automatic document classification and extraction (invoices, resumes, research, legal, audio)
-- Audio transcription and summarization (Groq Whisper)
-- Incremental agent loop with explainable steps, using a `GroqBrain` to decide actions
-- Saves structured results into PostgreSQL tables (invoices, resumes, research_papers, legal_docs, audio_notes, unknown_docs)
-- Natural-language database queries converted to SQL and executed
+- **Automatic document classification and extraction** (invoices, resumes, research, legal, audio, images)
+- **Vision capability** with Llama 4 Scout for image text extraction and OCR
+- **Audio transcription and summarization** (Groq Whisper)
+- **Multi-document type support**:
+  - Invoices: Vendor, date, line items, subtotal, tax, total amount
+  - Resumes: Scoring (0-100), skills extraction, name
+  - Research Papers: Title, abstract, and 6-7 line summary
+  - Legal Documents: Type, parties, effective/expiration dates, key clauses, summary
+  - Audio Notes: Transcription, summarization, sentiment analysis
+  - Images: Text extraction, document classification after OCR
+  - Unknown/Other: Generic summary and keyword extraction
+- **Incremental agent loop** with explainable steps, using a `GroqBrain` to decide actions
+- **Intelligent state management** with success flags to prevent redundant processing
+- **Saves structured results** into PostgreSQL tables (invoices, resumes, research_papers, legal_docs, audio_notes, unknown_docs)
+- **Natural-language database queries** converted to SQL and executed
+- **Duplicate detection** using file hashing (SHA-256)
 
 **Repository Layout**
 - `app.py` — Streamlit UI; upload documents/record audio and run the agent
@@ -85,8 +96,8 @@ streamlit run app.py
 
 Usage Overview
 - Streamlit UI (`app.py`) provides two input modes:
-  - Document upload: upload PDFs or text files; the agent will classify and process them.
-  - Voice notes: record or upload audio; the code transcribes via Groq Whisper and processes the transcript.
+  - **Document/Image upload**: Upload PDFs, text files, or images (PNG, JPG); the agent will analyze and classify them. Images are processed with vision AI for text extraction before classification.
+  - **Voice notes**: Record or upload audio (MP3, WAV, M4A); the code transcribes via Groq Whisper and processes the transcript.
 - After processing, results (structured data, summaries, scores) are saved into PostgreSQL and visible in the UI tabs.
 - The "Ask Data" tab accepts text or voice queries, converts natural-language to SQL, runs the SQL, and returns both a natural-language answer and evidence rows.
 
@@ -113,10 +124,3 @@ Development Notes
 - The agent loop in `agent.py` calls `GroqBrain.decide` which returns a single JSON action. The loop executes tools in `tools.py` and ultimately saves results using `database.py`.
 - Transcription uses `ToolRegistry.transcribe_audio` and expects audio objects with a `.read()` method. `app.py` adds a small metadata tag for audio: `[METADATA: AUDIO_NOTE]` so the classifier will treat it as audio.
 - SQL generation in `tools.py` returns a raw SQL string which is executed using SQLAlchemy `text()` to avoid injection/formatting issues.
-
-Contributing
-- Please open issues or PRs for bugs or improvements. Suggested workflow:
-  - Fork the repo
-  - Create a feature branch
-  - Add tests and update documentation
-  - Open a PR with a clear description
