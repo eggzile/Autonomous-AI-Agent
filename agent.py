@@ -45,7 +45,6 @@ class AutonomousAgent:
             action = decision.get('action')
             reasoning = decision.get('reasoning')
             
-            # --- LOGGING CHANGE: INCREMENTAL BLOCKS ---
             step_msg = f"""
 ---
 ### 🧠 Step {steps}
@@ -54,8 +53,7 @@ class AutonomousAgent:
 **⚡ Action:** `{action}`
             """
             if callback: callback(step_msg)
-            time.sleep(2.0) # Delay for reading
-            # ------------------------------------------
+            time.sleep(2.0)
 
             if action == "STOP": 
                 break
@@ -66,11 +64,15 @@ class AutonomousAgent:
             # 3. Update History
             state['history'].append({"action": action})
             
-            # Special UI updates (Incremental)
+            # Special UI updates
             if action == "classify_document":
                 state['type'] = res
                 if callback: callback(f"\n📂 **Classified as:** `{res}`")
                 time.sleep(1.0)
+            
+            # Show image extraction result
+            if action == "analyze_image":
+                if callback: callback(f"\n👁️ **Vision:** Extracted text from image.")
 
             # Hard Stop logic for Save
             if action == "save_data":
@@ -84,7 +86,34 @@ class AutonomousAgent:
 
     def _execute(self, action, state):
         t = self.tools
-        if action == "classify_document": return t.classify_document(state['content'])
+        
+        # --- NEW: IMAGE EXECUTION (UPDATED) ---
+        if action == "analyze_image":
+            try:
+                # 1. Extract Base64 from tags
+                raw = state['content']
+                start = "[METADATA: IMAGE_Base64_START]"
+                end = "[METADATA: IMAGE_Base64_END]"
+                b64_str = raw.split(start)[1].split(end)[0]
+                
+                # 2. Run Vision Tool (Extract Text)
+                extracted_text = t.analyze_image(b64_str)
+                
+                # 3. Update State Content
+                state['content'] = extracted_text
+                
+                # --- THE FIX: IMMEDIATE RE-CLASSIFICATION ---
+                # Don't ask the Brain to classify again (it might refuse).
+                # We force the classification tool right now.
+                new_type = t.classify_document(extracted_text)
+                state['type'] = new_type
+                # --------------------------------------------
+                
+                return f"👁️ Image Text Extracted & Re-classified as {new_type}"
+                
+            except Exception as e: return f"Image Error: {e}"
+        # ----------------------------
+        elif action == "classify_document": return t.classify_document(state['content'])
         elif action == "extract_invoice": state['extracted_data'] = t.extract_invoice(state['content'])
         elif action == "score_resume": state['score'] = t.score_resume(state['content'])
         elif action == "summarize_audio_note":

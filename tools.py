@@ -16,16 +16,51 @@ class ToolRegistry:
         try:
             transcription = self.client.audio.transcriptions.create(
                 file=(audio_file.name, audio_file.read()), 
-                model="whisper-large-v3", # FIXED MODEL NAME
+                model="whisper-large-v3", 
                 response_format="text"
             )
             return transcription
         except Exception as e:
             return f"Error transcribing audio: {str(e)}"
 
-    # --- 2. CLASSIFICATION ---
+    # --- 2. VISION (NEW) ---
+    # ... inside ToolRegistry class in tools.py ...
+
+    def analyze_image(self, base64_string: str) -> str:
+        """
+        Uses Llama 4 Scout (Vision) to transcribe text/objects from an image.
+        """
+        print("   [Tool] 👁️  Analyzing Image with Llama 4 Scout...")
+        
+        try:
+            chat_completion = self.client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this image in detail. If there is text, extract it all. If it is a scene or object, describe what it is."},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_string}",
+                                },
+                            },
+                        ],
+                    }
+                ],
+                model="meta-llama/llama-4-scout-17b-16e-instruct", 
+                temperature=0,
+            )
+            return chat_completion.choices[0].message.content
+        except Exception as e:
+            return f"Vision Error: {e}"
+
+    # --- 3. CLASSIFICATION ---
     def classify_document(self, content: str) -> str:
         if "[METADATA: AUDIO_NOTE]" in content: return "AUDIO_NOTE"
+        
+        # NEW: Check for Image Tag
+        if "[METADATA: IMAGE_Base64_START]" in content: return "IMAGE_NEEDS_OCR"
 
         prompt = f"""
         Classify into EXACTLY one category:
@@ -47,14 +82,12 @@ class ToolRegistry:
         if "RESEARCH" in raw: return "RESEARCH_PAPER"
         if "AUDIO" in raw: return "AUDIO_NOTE"
         
-        # --- ROBUST CHECK FOR LEGAL ---
         if "LEGAL" in raw or "NDA" in raw or "AGREEMENT" in raw or "CONTRACT" in raw:
             return "LEGAL_DOC"
-        # ------------------------------
         
         return "OTHER"
 
-    # --- 3. EXTRACTION TOOLS ---
+    # --- 4. EXTRACTION TOOLS ---
     def extract_invoice(self, content: str) -> Dict:
         prompt = f"""
         Extract invoice data as JSON. 
@@ -70,7 +103,6 @@ class ToolRegistry:
                 data['subtotal'] = calc_sub
         except: pass
         return data
-    
     
     def extract_legal_doc(self, content: str) -> Dict:
         prompt = f"""
@@ -107,22 +139,12 @@ class ToolRegistry:
         Text: {content[:3000]}
         """
         data = self._call_groq_json(prompt)
-        # Remove the metadata tag before saving to DB
         clean_content = content.replace("[METADATA: AUDIO_NOTE]", "").strip()
         data['transcript'] = clean_content 
         return data
 
-    # ... inside ToolRegistry class ...
-
     def query_database(self, query: str) -> Dict:
-        """
-        1. Convert Text -> SQL
-        2. Execute SQL -> DataFrame
-        3. Convert DataFrame -> Natural Language Answer
-        """
         print(f"   [Tool] ❓ Processing Query: '{query}'")
-        
-        # A. Define Schema
         schema_context = """
         Tables:
         - invoices (id, doc_id, vendor, inv_date, total_amount)
@@ -130,9 +152,7 @@ class ToolRegistry:
         - research_papers (id, doc_id, title, summary)
         - audio_notes (id, doc_id, transcript, summary, sentiment)
         """
-
         try:
-            # --- STEP 1: GENERATE SQL ---
             sql_prompt = f"""
             Generate a PostgreSQL query for: "{query}"
             Context: {schema_context}
@@ -141,59 +161,42 @@ class ToolRegistry:
             - Use ILIKE for text searches.
             - LIMIT to 10 rows unless specified otherwise.
             """
-            
             sql_response = self._call_groq(sql_prompt)
             sql_query = sql_response.replace("```sql", "").replace("```", "").strip()
-            
             print(f"   [Tool] 🔍 Executing SQL: {sql_query}")
 
-            # --- STEP 2: EXECUTE SQL (THE FIX) ---
             import pandas as pd
-            # Import 'text' to handle query structure correctly
             from sqlalchemy import create_engine, text
             from config import DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME
             
             db_url = f"postgresql+psycopg2://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
             engine = create_engine(db_url)
             
-            # FIX: Open connection explicitly and wrap SQL in text()
             with engine.connect() as conn:
                 df = pd.read_sql(text(sql_query), conn)
             
-            # --- STEP 3: GENERATE ANSWER ---
             if df.empty:
                 nl_answer = "I searched the database, but found no records matching your request."
             else:
                 data_preview = df.head(5).to_string(index=False)
                 row_count = len(df)
-                
                 summary_prompt = f"""
                 User Question: "{query}"
                 Database Data ({row_count} total rows):
                 {data_preview}
-                
                 Task: Answer the user's question in natural language based on this data. 
                 - Be concise.
                 """
                 nl_answer = self._call_groq(summary_prompt)
 
-            return {
-                "status": "success", 
-                "data": df, 
-                "sql": sql_query,
-                "answer": nl_answer
-            }
-            
+            return {"status": "success", "data": df, "sql": sql_query, "answer": nl_answer}
         except Exception as e:
             print(f"SQL Execution Error: {e}")
             return {"status": "error", "message": str(e)}
-        
 
     # --- 4. SAVING ---
     def save_data(self, doc_id: str, state: Dict):
         doc_type = state.get('type')
-        # ... (keep existing logging logic) ...
-        
         try:
             self.db.log_process(doc_id, state.get('filename'), doc_type, state.get('file_hash'))
 
@@ -201,12 +204,7 @@ class ToolRegistry:
             elif "RESUME" in doc_type: self.db.save_resume(doc_id, state.get('score', {}))
             elif "RESEARCH" in doc_type: self.db.save_research_paper(doc_id, state.get('research_summary', {}))
             elif "AUDIO" in doc_type: self.db.save_audio_note(doc_id, state.get('audio_summary', {}))
-            
-            # --- NEW SAVE BLOCK ---
-            elif "LEGAL" in doc_type:
-                self.db.save_legal_doc(doc_id, state.get('legal_data', {}))
-            # ----------------------
-
+            elif "LEGAL" in doc_type: self.db.save_legal_doc(doc_id, state.get('legal_data', {}))
             elif "OTHER" in doc_type: self.db.save_unknown(doc_id, state.get('summary_data', {}))
             
             return "Saved Successfully"
@@ -221,28 +219,17 @@ class ToolRegistry:
         ).choices[0].message.content
 
     def _call_groq_json(self, prompt):
-        # --- THE NUCLEAR FIX FOR JSON ERRORS ---
-        # 1. We tell the System to only output JSON.
-        # 2. We DO NOT use 'response_format={"type": "json_object"}' (It breaks).
-        # 3. We manually parse the string result.
-        
         system_prompt = "You are an API that outputs strictly valid JSON. Do not output markdown blocks or comments."
-        
         try:
             completion = self.client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                model=MODEL_NAME, 
-                temperature=0 
-                # NO response_format param!
+                model=MODEL_NAME, temperature=0 
             )
-            
             content = completion.choices[0].message.content
-            # Clean up potential markdown wrappers
             content = content.replace("```json", "").replace("```", "").strip()
-            
             return json.loads(content)
         except Exception as e:
             print(f"JSON Parsing Error: {e}")

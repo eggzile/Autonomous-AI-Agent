@@ -9,14 +9,13 @@ class GroqBrain:
 
     def decide(self, state, tools):
         # --- THE FIX: ADD SUCCESS FLAGS ---
-        # The Brain needs to know IF data exists, without seeing the massive JSON.
         mini_state = {
             "filename": state.get("filename"),
             "type": state.get("type", "MISSING"),
             "history": state.get("history", []),
             "content_preview": state.get("content", "")[:500],
             
-            # Boolean Flags (The Brain's "Eyes")
+            # Boolean Flags
             "has_invoice_data": state.get("extracted_data") is not None,
             "has_resume_score": state.get("score") is not None,
             "has_research_summary": state.get("research_summary") is not None,
@@ -29,15 +28,16 @@ class GroqBrain:
         You are an autonomous agent. Output ONLY valid JSON.
         """
         
-        # We update the workflows to check the FLAGS, not the raw keys.
         user_prompt = f"""
         Analyze the current state and decide the next action.
         
         Current State: {json.dumps(mini_state, indent=2)}
         
-        Available Tools: [classify_document, extract_invoice, score_resume, summarize_research_paper, extract_legal_doc, summarize_audio_note, summarize_unknown, save_data]
+        Available Tools: [analyze_image, classify_document, extract_invoice, score_resume, summarize_research_paper, extract_legal_doc, summarize_audio_note, summarize_unknown, save_data]
         
         Workflows:
+        0. If 'type' is 'IMAGE_NEEDS_OCR' -> action: "analyze_image"
+        
         1. If 'type' is 'MISSING' -> action: "classify_document"
         
         2. If 'type' is 'INVOICE' and 'has_invoice_data' is false -> action: "extract_invoice"

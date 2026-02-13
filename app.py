@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import base64
 from sqlalchemy import create_engine
 from pypdf import PdfReader
 from config import DB_HOST, DB_NAME, DB_USER, DB_PASS, DB_PORT
@@ -47,21 +48,41 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("📡 Agent Terminal")
 
-    input_method = st.radio("Select Input:", ["📄 Document Upload", "🎙️ Voice Note"], horizontal=True)
+    input_method = st.radio("Select Input:", ["📄 Document/Image Upload", "🎙️ Voice Note"], horizontal=True)
 
     content = ""
     file_name = "unknown"
     start_process = False
 
-    # --- OPTION A: DOCUMENT UPLOAD ---
-    if input_method == "📄 Document Upload":
-        uploaded_file = st.file_uploader("Upload PDF or Text file", type=["pdf", "txt"])
+    # --- OPTION A: DOCUMENT/IMAGE UPLOAD ---
+    if input_method == "📄 Document/Image Upload":
+        # 1. Update accepted types to include images
+        uploaded_file = st.file_uploader("Upload PDF, Text, or Image", type=["pdf", "txt", "png", "jpg", "jpeg"])
         
-        if uploaded_file and st.button("Process Document", type="primary"):
-            with st.spinner("📖 Reading file..."):
-                content = read_file(uploaded_file)
+        if uploaded_file and st.button("Process File", type="primary"):
+            with st.spinner("👀 Analyzing file..."):
                 file_name = uploaded_file.name
-                start_process = True
+                
+                # 2. Handle Images (New Feature)
+                if uploaded_file.type in ["image/png", "image/jpeg", "image/jpg"]:
+                    # Display the image
+                    st.image(uploaded_file, caption="Uploaded Image", use_column_width=True)
+                    
+                    # Convert to base64 for the API
+                    image_bytes = uploaded_file.getvalue()
+                    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                    
+                    # We tag it so the Brain knows it's an image
+                    content = f"[METADATA: IMAGE_Base64_START]{base64_image}[METADATA: IMAGE_Base64_END]"
+                    start_process = True
+
+                # 3. Handle PDFs/Text (Existing Logic)
+                elif uploaded_file.name.endswith(".pdf"):
+                    content = read_file(uploaded_file)
+                    start_process = True
+                else:
+                    content = uploaded_file.read().decode("utf-8")
+                    start_process = True
 
     # --- OPTION B: VOICE INPUT ---
     elif input_method == "🎙️ Voice Note":
@@ -87,8 +108,7 @@ with col1:
                         st.success("Transcription Complete!")
                         st.text_area("📝 Transcript:", transcription_text, height=150)
                         
-                        # --- THE FIX: Metadata Injection ---
-                        # We force the tag so the classifier knows 100% this is audio.
+                        # Metadata Injection
                         content = f"[METADATA: AUDIO_NOTE]\n{transcription_text}"
                         
                         timestamp = str(int(pd.Timestamp.now().timestamp()))
@@ -173,9 +193,7 @@ with col2:
     with t5: st.dataframe(get_data("audio_notes"), width='stretch')
     with t6: st.dataframe(get_data("unknown_docs"), width='stretch')
     
-    # ... inside the "Right Column" logic in app.py ...
-
-    # ... inside the "💬 Ask Data" tab (t6) ...
+    # --- CHAT TAB ---
     with t7:
         st.info("🤖 Ask questions about your data (Text or Voice)")
         
