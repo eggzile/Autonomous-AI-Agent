@@ -1,0 +1,12 @@
+groq
+psycopg2-binary
+pydantic
+streamlit
+pandas
+pypdf
+openpyxl
+python-dateutil
+numpy
+ollama
+sqlalchemy
+python-dotenv
