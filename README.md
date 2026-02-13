@@ -1,4 +1,4 @@
-# Groq Autonomous Agent
+# DocAI Autonomous Document Processing Agent
 
 An autonomous AI agent for processing documents and audio notes, classifying them (invoices, resumes, research papers, legal docs, audio notes, or other), extracting structured data, and saving results to a PostgreSQL database. Built with Streamlit, Groq API, and PostgreSQL.
 
